@@ -1,0 +1,889 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CellSense — Battery SOH Prediction System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0D1117;
+    --panel:#141B23;
+    --panel-2:#1C2530;
+    --line:#27323F;
+    --cyan:#00D9FF;
+    --cyan-dim:#0A4A57;
+    --green:#39FF88;
+    --amber:#FFB020;
+    --red:#FF4757;
+    --text:#E6EDF3;
+    --text-dim:#7E8B99;
+    --font-display:'Space Grotesk',sans-serif;
+    --font-mono:'IBM Plex Mono',monospace;
+    --font-body:'Inter',sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:var(--font-body);
+    background:var(--bg);
+    color:var(--text);
+    overflow-x:hidden;
+    min-height:100vh;
+    position:relative;
+  }
+
+  /* ---------- ambient animated background ---------- */
+  .bg-grid{
+    position:fixed; inset:0; z-index:0;
+    background-image:
+      linear-gradient(rgba(0,217,255,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,217,255,0.05) 1px, transparent 1px);
+    background-size:42px 42px;
+    -webkit-mask-image:radial-gradient(ellipse 80% 60% at 50% 30%, #000 40%, transparent 90%);
+            mask-image:radial-gradient(ellipse 80% 60% at 50% 30%, #000 40%, transparent 90%);
+  }
+  .bg-glow{
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(circle at 15% 20%, rgba(0,217,255,0.12), transparent 35%),
+      radial-gradient(circle at 85% 75%, rgba(57,255,136,0.10), transparent 40%);
+    animation:driftGlow 18s ease-in-out infinite alternate;
+  }
+  @keyframes driftGlow{
+    0%{ transform:translate(0,0) scale(1); }
+    100%{ transform:translate(2%,-2%) scale(1.08); }
+  }
+  .scan-line{
+    position:fixed; left:0; width:100%; height:2px; z-index:1; pointer-events:none;
+    background:linear-gradient(90deg, transparent, rgba(0,217,255,0.55), transparent);
+    box-shadow:0 0 12px rgba(0,217,255,0.6);
+    animation:scanMove 6s linear infinite;
+  }
+  @keyframes scanMove{
+    0%{ top:-2px; opacity:0; }
+    5%{ opacity:1; }
+    95%{ opacity:1; }
+    100%{ top:100%; opacity:0; }
+  }
+  .particle{
+    position:fixed; z-index:0; pointer-events:none; border-radius:50%;
+    background:var(--cyan); opacity:0.35; filter:blur(1px);
+    animation:floatUp linear infinite;
+  }
+  @keyframes floatUp{
+    0%{ transform:translateY(0) translateX(0); opacity:0; }
+    10%{ opacity:0.5; }
+    90%{ opacity:0.3; }
+    100%{ transform:translateY(-100vh) translateX(20px); opacity:0; }
+  }
+
+  .app{ position:relative; z-index:2; min-height:100vh; }
+
+  /* ---------- shared bits ---------- */
+  .eyebrow{
+    font-family:var(--font-mono); font-size:11px; letter-spacing:2px;
+    text-transform:uppercase; color:var(--cyan); display:flex; align-items:center; gap:8px;
+  }
+  .eyebrow::before{ content:''; width:6px; height:6px; border-radius:50%; background:var(--cyan); box-shadow:0 0 8px var(--cyan); animation:pulseDot 1.6s ease-in-out infinite; }
+  @keyframes pulseDot{ 0%,100%{ opacity:1; } 50%{ opacity:0.3; } }
+
+  h1,h2,h3{ font-family:var(--font-display); }
+  .mono{ font-family:var(--font-mono); }
+
+  button{ font-family:var(--font-display); cursor:pointer; border:none; }
+  input{ font-family:var(--font-mono); }
+
+  ::selection{ background:var(--cyan-dim); }
+  *:focus-visible{ outline:2px solid var(--cyan); outline-offset:2px; }
+
+  /* ================= LOGIN SCREEN ================= */
+  #loginScreen{
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:24px;
+  }
+  .login-card{
+    width:100%; max-width:420px;
+    background:linear-gradient(180deg, var(--panel), var(--panel-2));
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:38px 34px 30px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,217,255,0.04);
+    position:relative;
+    animation:cardRise 0.7s cubic-bezier(.2,.8,.2,1);
+  }
+  @keyframes cardRise{
+    from{ opacity:0; transform:translateY(18px) scale(0.98); }
+    to{ opacity:1; transform:translateY(0) scale(1); }
+  }
+  .login-card::before{
+    content:''; position:absolute; top:0; left:18px; right:18px; height:1px;
+    background:linear-gradient(90deg, transparent, var(--cyan), transparent);
+    opacity:0.6;
+  }
+  .brand-row{ display:flex; align-items:center; gap:12px; margin-bottom:22px; }
+  .brand-cell{ width:34px; height:34px; flex-shrink:0; }
+  .brand-name{ font-size:20px; font-weight:700; letter-spacing:0.3px; }
+  .brand-name span{ color:var(--cyan); }
+  .login-card h2{ font-size:22px; margin-bottom:6px; }
+  .login-sub{ color:var(--text-dim); font-size:13px; margin-bottom:26px; line-height:1.5; }
+
+  .field{ margin-bottom:16px; text-align:left; }
+  .field label{
+    display:block; font-family:var(--font-mono); font-size:10.5px; letter-spacing:1.2px;
+    text-transform:uppercase; color:var(--text-dim); margin-bottom:7px;
+  }
+  .field input{
+    width:100%; padding:12px 14px; background:#0B1117; border:1px solid var(--line);
+    border-radius:8px; color:var(--text); font-size:14px; transition:border-color .2s, box-shadow .2s;
+  }
+  .field input:focus{ border-color:var(--cyan); box-shadow:0 0 0 3px rgba(0,217,255,0.12); outline:none; }
+  .field input::placeholder{ color:#4A5663; }
+
+  .remember-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:22px; }
+  .remember-check{ display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--text-dim); cursor:pointer; }
+  .remember-check input{ width:14px; height:14px; accent-color:var(--cyan); cursor:pointer; }
+  .forgot-link{ font-size:12.5px; color:var(--cyan); text-decoration:none; background:none; }
+
+  .btn-primary{
+    width:100%; padding:13px; border-radius:8px; font-size:14.5px; font-weight:600;
+    background:linear-gradient(135deg, var(--cyan), #00A8C7); color:#04222B;
+    letter-spacing:0.3px; transition:transform .15s, box-shadow .2s;
+    box-shadow:0 6px 20px rgba(0,217,255,0.25);
+  }
+  .btn-primary:hover{ transform:translateY(-1px); box-shadow:0 8px 26px rgba(0,217,255,0.4); }
+  .btn-primary:active{ transform:translateY(0); }
+
+  .login-error{
+    display:none; background:rgba(255,71,87,0.1); border:1px solid rgba(255,71,87,0.35);
+    color:#FF8A93; font-size:12.5px; padding:10px 12px; border-radius:8px; margin-bottom:16px;
+    font-family:var(--font-mono);
+  }
+
+  .divider-row{ display:flex; align-items:center; gap:10px; margin:20px 0 16px; }
+  .divider-row::before, .divider-row::after{ content:''; flex:1; height:1px; background:var(--line); }
+  .divider-row span{ font-size:11px; color:var(--text-dim); font-family:var(--font-mono); }
+
+  .saved-list{ display:flex; flex-direction:column; gap:8px; margin-bottom:6px; }
+  .saved-chip{
+    display:flex; align-items:center; gap:10px; padding:9px 12px;
+    background:#0B1117; border:1px solid var(--line); border-radius:8px;
+    cursor:pointer; transition:border-color .2s, background .2s; text-align:left;
+  }
+  .saved-chip:hover{ border-color:var(--cyan); background:#0E1620; }
+  .saved-avatar{
+    width:26px; height:26px; border-radius:50%; background:var(--panel-2);
+    display:flex; align-items:center; justify-content:center; font-size:11px;
+    color:var(--cyan); font-family:var(--font-mono); flex-shrink:0; border:1px solid var(--line);
+  }
+  .saved-meta{ font-size:12.5px; color:var(--text); }
+  .saved-meta small{ display:block; color:var(--text-dim); font-size:10.5px; margin-top:1px; }
+
+  .login-footnote{
+    text-align:center; margin-top:20px; font-size:11px; color:var(--text-dim); line-height:1.6;
+  }
+
+  /* ================= APP SHELL ================= */
+  #dashboard{ display:none; }
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 28px; border-bottom:1px solid var(--line);
+    background:rgba(13,17,23,0.75); backdrop-filter:blur(8px);
+    position:sticky; top:0; z-index:10;
+  }
+  .topbar-left{ display:flex; align-items:center; gap:12px; }
+  .topbar-left .brand-cell{ width:28px; height:28px; }
+  .topbar-left .brand-name{ font-size:16px; }
+  .topbar-right{ display:flex; align-items:center; gap:18px; }
+  .user-pill{
+    display:flex; align-items:center; gap:9px; padding:6px 12px 6px 6px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:30px; font-size:12.5px;
+  }
+  .user-pill .dot-avatar{
+    width:24px; height:24px; border-radius:50%; background:linear-gradient(135deg, var(--cyan), var(--green));
+    display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); font-size:10px; color:#04222B; font-weight:600;
+  }
+  .logout-btn{
+    background:none; color:var(--text-dim); font-family:var(--font-body); font-size:12.5px;
+    border:1px solid var(--line); padding:6px 14px; border-radius:30px; transition:all .2s;
+  }
+  .logout-btn:hover{ color:var(--red); border-color:var(--red); }
+
+  .shell{ max-width:1180px; margin:0 auto; padding:30px 24px 70px; }
+
+  .page-head{ margin-bottom:26px; }
+  .page-head h1{ font-size:26px; margin-top:8px; }
+  .page-head p{ color:var(--text-dim); font-size:13.5px; margin-top:6px; max-width:560px; line-height:1.6; }
+
+  .tabs{ display:flex; gap:6px; margin-bottom:26px; border-bottom:1px solid var(--line); overflow-x:auto; }
+  .tab-btn{
+    background:none; color:var(--text-dim); font-size:13px; padding:11px 16px;
+    border-bottom:2px solid transparent; white-space:nowrap; transition:color .2s, border-color .2s;
+  }
+  .tab-btn.active{ color:var(--cyan); border-bottom-color:var(--cyan); }
+  .tab-btn:hover{ color:var(--text); }
+
+  .tab-panel{ display:none; animation:fadeIn .35s ease; }
+  .tab-panel.active{ display:block; }
+  @keyframes fadeIn{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:translateY(0); } }
+
+  .grid-2{ display:grid; grid-template-columns:1.1fr 0.9fr; gap:22px; }
+  @media (max-width:880px){ .grid-2{ grid-template-columns:1fr; } }
+
+  .panel{
+    background:linear-gradient(180deg, var(--panel), var(--panel-2));
+    border:1px solid var(--line); border-radius:14px; padding:24px;
+    position:relative; overflow:hidden;
+  }
+  .panel-title{
+    font-family:var(--font-mono); font-size:11px; letter-spacing:1.5px; text-transform:uppercase;
+    color:var(--text-dim); margin-bottom:18px; display:flex; align-items:center; justify-content:space-between;
+  }
+
+  .field-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:18px; }
+  .field-grid .field{ margin-bottom:0; }
+  .field .unit{ font-size:10.5px; color:var(--text-dim); float:right; text-transform:none; letter-spacing:0; }
+
+  .btn-predict{
+    width:100%; padding:14px; border-radius:9px; font-size:14.5px; font-weight:600;
+    background:linear-gradient(135deg, var(--green), #1FCB6B); color:#06210F;
+    box-shadow:0 6px 20px rgba(57,255,136,0.22); transition:transform .15s, box-shadow .2s;
+  }
+  .btn-predict:hover{ transform:translateY(-1px); box-shadow:0 8px 26px rgba(57,255,136,0.35); }
+
+  /* battery cell signature visual */
+  .cell-wrap{ display:flex; flex-direction:column; align-items:center; justify-content:center; padding:10px 0 6px; }
+  .battery-svg{ width:150px; height:280px; }
+  .soh-readout{ text-align:center; margin-top:14px; }
+  .soh-number{ font-family:var(--font-mono); font-size:40px; font-weight:600; line-height:1; }
+  .soh-label{ font-family:var(--font-mono); font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--text-dim); margin-top:6px; }
+  .status-badge{
+    display:inline-flex; align-items:center; gap:7px; padding:6px 14px; border-radius:30px;
+    font-size:12px; font-weight:600; margin-top:12px; font-family:var(--font-display);
+  }
+  .status-badge .b-dot{ width:7px; height:7px; border-radius:50%; }
+
+  .placeholder-result{ text-align:center; color:var(--text-dim); font-size:13px; padding:40px 10px; }
+  .placeholder-result .ph-icon{ font-size:34px; margin-bottom:10px; opacity:0.5; }
+
+  .metric-row{ display:flex; gap:14px; margin-top:18px; flex-wrap:wrap; }
+  .metric-chip{
+    flex:1; min-width:110px; background:#0B1117; border:1px solid var(--line); border-radius:10px;
+    padding:12px 14px; text-align:left;
+  }
+  .metric-chip .m-val{ font-family:var(--font-mono); font-size:18px; font-weight:600; }
+  .metric-chip .m-label{ font-size:10.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-top:4px; }
+
+  /* recent activity / history */
+  .activity-item{
+    display:flex; align-items:center; gap:14px; padding:13px 4px;
+    border-bottom:1px solid var(--line);
+  }
+  .activity-item:last-child{ border-bottom:none; }
+  .activity-icon{
+    width:36px; height:36px; border-radius:9px; display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-mono); font-size:13px; flex-shrink:0;
+  }
+  .activity-body{ flex:1; min-width:0; }
+  .activity-title{ font-size:13.5px; font-weight:500; }
+  .activity-meta{ font-size:11.5px; color:var(--text-dim); margin-top:2px; font-family:var(--font-mono); }
+  .activity-val{ font-family:var(--font-mono); font-weight:600; font-size:14px; text-align:right; flex-shrink:0; }
+
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  thead th{
+    text-align:left; font-family:var(--font-mono); font-size:10.5px; letter-spacing:1px; text-transform:uppercase;
+    color:var(--text-dim); padding:10px 12px; border-bottom:1px solid var(--line);
+  }
+  tbody td{ padding:12px; border-bottom:1px solid var(--line); }
+  tbody tr:hover{ background:rgba(0,217,255,0.04); }
+  tbody tr:last-child td{ border-bottom:none; }
+  .row-status{ display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; }
+  .row-status .b-dot{ width:6px; height:6px; border-radius:50%; }
+  .empty-state{ text-align:center; padding:50px 20px; color:var(--text-dim); }
+  .empty-state .e-icon{ font-size:38px; margin-bottom:12px; opacity:0.4; }
+  .empty-state p{ font-size:13px; margin-top:6px; }
+
+  .stat-cards{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:26px; }
+  @media (max-width:880px){ .stat-cards{ grid-template-columns:repeat(2,1fr); } }
+  .stat-card{
+    background:linear-gradient(180deg, var(--panel), var(--panel-2)); border:1px solid var(--line);
+    border-radius:12px; padding:18px 20px; position:relative; overflow:hidden;
+  }
+  .stat-card::after{
+    content:''; position:absolute; right:-20px; top:-20px; width:80px; height:80px; border-radius:50%;
+    background:radial-gradient(circle, var(--cyan-dim), transparent 70%); opacity:0.5;
+  }
+  .stat-card .s-label{ font-family:var(--font-mono); font-size:10.5px; color:var(--text-dim); letter-spacing:1px; text-transform:uppercase; }
+  .stat-card .s-val{ font-family:var(--font-mono); font-size:26px; font-weight:600; margin-top:8px; }
+  .stat-card .s-trend{ font-size:11px; margin-top:6px; font-family:var(--font-mono); }
+
+  .report-actions{ display:flex; gap:12px; margin-top:20px; flex-wrap:wrap; }
+  .btn-secondary{
+    padding:11px 18px; border-radius:8px; font-size:13px; font-weight:600;
+    background:var(--panel-2); color:var(--text); border:1px solid var(--line); transition:all .2s;
+  }
+  .btn-secondary:hover{ border-color:var(--cyan); color:var(--cyan); }
+
+  .report-preview{
+    background:#fff; color:#1a1a1a; border-radius:10px; padding:0; margin-top:20px;
+    font-family:var(--font-body); overflow:hidden; display:none;
+  }
+  .report-preview.show{ display:block; animation:fadeIn .4s ease; }
+  .report-head{ background:#0D1117; color:#fff; padding:22px 28px; }
+  .report-head h2{ font-size:18px; }
+  .report-head p{ font-size:11px; color:#8FA3B0; margin-top:4px; font-family:var(--font-mono); }
+  .report-body{ padding:24px 28px; }
+  .report-body h4{ font-size:12px; text-transform:uppercase; letter-spacing:1px; color:#666; margin:18px 0 10px; }
+  .report-body h4:first-child{ margin-top:0; }
+  .report-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; font-size:13px; }
+  .report-grid div span{ color:#888; display:block; font-size:10.5px; text-transform:uppercase; letter-spacing:0.5px; }
+  .report-verdict{
+    margin-top:18px; padding:14px 16px; border-radius:8px; font-size:13.5px; font-weight:600;
+  }
+  .report-foot{ padding:14px 28px; background:#f4f4f4; font-size:10.5px; color:#999; font-family:var(--font-mono); }
+
+  .formula-box{
+    background:#0B1117; border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-top:16px;
+    font-family:var(--font-mono); font-size:12px; color:var(--cyan); line-height:1.8; overflow-x:auto;
+  }
+  .formula-box .comment{ color:var(--text-dim); }
+
+  .help-list{ list-style:none; display:flex; flex-direction:column; gap:14px; margin-top:16px; }
+  .help-list li{ display:flex; gap:12px; font-size:13px; color:var(--text-dim); line-height:1.6; }
+  .help-list .h-num{
+    font-family:var(--font-mono); font-size:11px; color:var(--cyan); flex-shrink:0; padding-top:2px;
+  }
+
+  .toast{
+    position:fixed; bottom:24px; right:24px; background:var(--panel-2); border:1px solid var(--cyan);
+    color:var(--text); padding:13px 18px; border-radius:10px; font-size:13px; z-index:999;
+    box-shadow:0 10px 30px rgba(0,0,0,0.4); transform:translateY(20px); opacity:0; transition:all .3s;
+    font-family:var(--font-mono); display:flex; align-items:center; gap:10px;
+  }
+  .toast.show{ transform:translateY(0); opacity:1; }
+
+  footer.app-footer{
+    text-align:center; padding:30px 0 10px; color:var(--text-dim); font-size:11px; font-family:var(--font-mono);
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:0.01ms !important; animation-iteration-count:1 !important; transition-duration:0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+<div class="scan-line"></div>
+<div id="particleField"></div>
+
+<div class="app">
+
+  <!-- ============ LOGIN SCREEN ============ -->
+  <div id="loginScreen">
+    <div class="login-card">
+      <div class="brand-row">
+        <svg class="brand-cell" viewBox="0 0 24 24" fill="none">
+          <rect x="3" y="6" width="16" height="12" rx="2" stroke="#00D9FF" stroke-width="1.6"/>
+          <rect x="20" y="10" width="2" height="4" rx="1" fill="#00D9FF"/>
+          <rect x="5.5" y="8.5" width="10" height="7" rx="1" fill="#00D9FF" opacity="0.85"/>
+        </svg>
+        <div class="brand-name">Cell<span>Sense</span></div>
+      </div>
+      <h2>Sign in to your lab</h2>
+      <p class="login-sub">Battery State-of-Health prediction </p>
+
+      <div class="login-error" id="loginError">⚠ INVALID CREDENTIALS — check username and password and try again.</div>
+
+      <form id="loginForm" autocomplete="off">
+        <div class="field">
+          <label for="loginUser">Username</label>
+          <input type="text" id="loginUser" placeholder="e.g. admin" required>
+        </div>
+        <div class="field">
+          <label for="loginPass">Password</label>
+          <input type="password" id="loginPass" placeholder="••••••••" required>
+        </div>
+        <div class="remember-row">
+          <label class="remember-check"><input type="checkbox" id="rememberMe"> Remember this device</label>
+          <button type="button" class="forgot-link" onclick="showToast('Demo project — password reset is not wired up.')">Forgot password?</button>
+        </div>
+        <button type="submit" class="btn-primary">Sign in →</button>
+      </form>
+
+      <div class="divider-row"><span>SAVED CREDENTIALS</span></div>
+      <div class="saved-list" id="savedList"></div>
+
+      <div class="login-footnote">Demo login: <strong>admin / 1234</strong> · or tap a saved profile above<br>No real data leaves this browser tab.</div>
+    </div>
+  </div>
+
+  <!-- ============ DASHBOARD ============ -->
+  <div id="dashboard">
+    <div class="topbar">
+      <div class="topbar-left">
+        <svg class="brand-cell" viewBox="0 0 24 24" fill="none">
+          <rect x="3" y="6" width="16" height="12" rx="2" stroke="#00D9FF" stroke-width="1.6"/>
+          <rect x="20" y="10" width="2" height="4" rx="1" fill="#00D9FF"/>
+          <rect x="5.5" y="8.5" width="10" height="7" rx="1" fill="#00D9FF" opacity="0.85"/>
+        </svg>
+        <div class="brand-name">Cell<span style="color:var(--cyan)">Sense</span></div>
+      </div>
+      <div class="topbar-right">
+        <div class="user-pill">
+          <div class="dot-avatar" id="userAvatar">A</div>
+          <span id="userNameLabel">admin</span>
+        </div>
+        <button class="logout-btn" onclick="logout()">Log out</button>
+      </div>
+    </div>
+
+    <div class="shell">
+      <div class="page-head">
+        <div class="eyebrow">LIVE MONITORING CONSOLE</div>
+        <h1>Battery SOH Prediction Dashboard</h1>
+        <p>Estimate State-of-Health from cycle count, temperature, internal resistance and charge rate, then track history .</p>
+      </div>
+
+      <div class="stat-cards" id="statCards"></div>
+
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="predict">⚡ Predict SOH</button>
+        <button class="tab-btn" data-tab="history">🕘 Recent Activity</button>
+        <button class="tab-btn" data-tab="report">📄 Generate Report</button>
+        <button class="tab-btn" data-tab="about">ℹ Model &amp; Help</button>
+      </div>
+
+      <!-- PREDICT TAB -->
+      <div class="tab-panel active" id="tab-predict">
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-title">INPUT PARAMETERS</div>
+            <div class="field-grid">
+              <div class="field">
+                <label>Cycle Count <span class="unit">cycles</span></label>
+                <input type="number" id="cycle" placeholder="e.g. 320">
+              </div>
+              <div class="field">
+                <label>Temperature <span class="unit">°C</span></label>
+                <input type="number" id="temp" placeholder="e.g. 28">
+              </div>
+              <div class="field">
+                <label>Internal Resistance <span class="unit">Ω</span></label>
+                <input type="number" id="resistance" placeholder="e.g. 0.045" step="0.001">
+              </div>
+              <div class="field">
+                <label>Charge Rate <span class="unit">C</span></label>
+                <input type="number" id="charge" placeholder="e.g. 1.0" step="0.1">
+              </div>
+            </div>
+            <button class="btn-predict" onclick="predictSOH()">Run Prediction</button>
+
+            <div class="formula-box">
+<span class="comment">// Degradation heuristic used by this demo</span><br>
+SOH = 100 − (cycle × 0.015)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;− (temp × 0.08)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;− (resistance × 120)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;− (charge × 1.5)<br>
+<span class="comment">// clamped between 50% and 100%</span>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">PREDICTION RESULT</div>
+            <div id="resultArea">
+              <div class="placeholder-result">
+                <div class="ph-icon">🔋</div>
+                Enter cell parameters and run a prediction<br>to see the SOH readout here.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- HISTORY TAB -->
+      <div class="tab-panel" id="tab-history">
+        <div class="panel">
+          <div class="panel-title">
+            RECENT ACTIVITY
+            <button class="btn-secondary" style="padding:6px 12px;font-size:11px" onclick="clearHistory()">Clear log</button>
+          </div>
+          <div id="historyTableWrap"></div>
+        </div>
+      </div>
+
+      <!-- REPORT TAB -->
+      <div class="tab-panel" id="tab-report">
+        <div class="panel">
+          <div class="panel-title">REPORT GENERATOR</div>
+          <p style="color:var(--text-dim);font-size:13px;line-height:1.6;margin-bottom:6px">
+            Generates a clean, printable diagnostic report from your most recent prediction .
+          </p>
+          <div class="report-actions">
+            <button class="btn-predict" style="width:auto" onclick="generateReport()">Generate Report</button>
+            <button class="btn-secondary" onclick="printReport()">🖨 Print / Save as PDF</button>
+          </div>
+          <div class="report-preview" id="reportPreview"></div>
+        </div>
+      </div>
+
+      <!-- ABOUT / HELP TAB -->
+      <div class="tab-panel" id="tab-about">
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-title">ABOUT THIS MODEL</div>
+            <p style="font-size:13.5px;color:var(--text-dim);line-height:1.7">
+              State of Health (SOH) is a percentage measure of a battery's current capacity relative to its original rated capacity. This project demonstrates how four measurable parameters — charge/discharge cycles, operating temperature, internal resistance, and charge rate — can be combined into a simple weighted formula to estimate SOH without needing a full lab teardown.
+            </p>
+            <p style="font-size:13.5px;color:var(--text-dim);line-height:1.7;margin-top:12px">
+              In a production BMS (Battery Management System), this kind of estimate is typically backed by regression models or neural networks trained on real charge/discharge datasets (e.g. NASA's battery aging dataset). This demo uses a transparent linear heuristic so the logic is easy to explain on a whiteboard.
+            </p>
+          </div>
+          <div class="panel">
+            <div class="panel-title">HOW TO DEMO THIS</div>
+            <ul class="help-list">
+              <li><span class="h-num">01</span>Sign in using the demo credentials or a saved profile.</li>
+              <li><span class="h-num">02</span>Enter sample readings in the Predict tab and click Run Prediction.</li>
+              <li><span class="h-num">03</span>Open Recent Activity to show every prediction is logged with a timestamp.</li>
+              <li><span class="h-num">04</span>Generate a report and use Print → Save as PDF to hand in a physical copy.</li>
+              <li><span class="h-num">05</span>Explain the formula box — it's the whole "model" in one transparent equation.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <footer class="app-footer">CELLSENSE · BATTERY SOH PREDICTION SYSTEM · ACADEMIC DEMO BUILD</footer>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ===================== AMBIENT PARTICLES ===================== */
+(function(){
+  const field = document.getElementById('particleField');
+  for(let i=0;i<22;i++){
+    const p = document.createElement('div');
+    p.className='particle';
+    const size = Math.random()*3+1.5;
+    p.style.width = size+'px';
+    p.style.height = size+'px';
+    p.style.left = Math.random()*100+'vw';
+    p.style.bottom = (Math.random()*20)+'vh';
+    p.style.animationDuration = (Math.random()*14+10)+'s';
+    p.style.animationDelay = (Math.random()*10)+'s';
+    if(Math.random()>0.5) p.style.background = 'var(--green)';
+    field.appendChild(p);
+  }
+})();
+
+/* ===================== TOAST ===================== */
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(()=>t.classList.remove('show'), 2600);
+}
+
+/* ===================== SAVED CREDENTIALS (demo, in-memory) ===================== */
+const savedProfiles = [
+  {user:'admin', pass:'1234', label:'Admin · Project Lead', initial:'A'},
+  {user:'faculty', pass:'guide123', label:'Faculty Guide Access', initial:'F'},
+  {user:'student01', pass:'btech2026', label:'Student · Team Member', initial:'S'}
+];
+
+function renderSavedList(){
+  const wrap = document.getElementById('savedList');
+  wrap.innerHTML = savedProfiles.map(p => `
+    <button type="button" class="saved-chip" onclick="quickLogin('${p.user}','${p.pass}')">
+      <div class="saved-avatar">${p.initial}</div>
+      <div class="saved-meta">${p.user}<small>${p.label}</small></div>
+    </button>
+  `).join('');
+}
+renderSavedList();
+
+function quickLogin(user, pass){
+  document.getElementById('loginUser').value = user;
+  document.getElementById('loginPass').value = pass;
+  attemptLogin(user, pass);
+}
+
+/* ===================== LOGIN LOGIC ===================== */
+document.getElementById('loginForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  const user = document.getElementById('loginUser').value.trim();
+  const pass = document.getElementById('loginPass').value.trim();
+  attemptLogin(user, pass);
+});
+
+function attemptLogin(user, pass){
+  const match = savedProfiles.find(p => p.user === user && p.pass === pass);
+  const errBox = document.getElementById('loginError');
+  if(match || (user==='admin' && pass==='1234')){
+    errBox.style.display='none';
+    document.getElementById('userNameLabel').textContent = user;
+    document.getElementById('userAvatar').textContent = user.charAt(0).toUpperCase();
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('dashboard').style.display='block';
+    renderStatCards();
+    renderHistory();
+    showToast('Signed in as ' + user);
+  } else {
+    errBox.style.display='block';
+  }
+}
+
+function logout(){
+  document.getElementById('dashboard').style.display='none';
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('loginUser').value='';
+  document.getElementById('loginPass').value='';
+  document.getElementById('loginError').style.display='none';
+}
+
+/* ===================== TABS ===================== */
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+    if(btn.dataset.tab==='history') renderHistory();
+  });
+});
+
+/* ===================== PREDICTION ENGINE ===================== */
+let history = [];
+let lastPrediction = null;
+
+function statusFor(soh){
+  if(soh >= 80) return {label:'Healthy Battery', color:'var(--green)', hex:'#39FF88'};
+  if(soh >= 60) return {label:'Average Battery', color:'var(--amber)', hex:'#FFB020'};
+  return {label:'Critical Battery', color:'var(--red)', hex:'#FF4757'};
+}
+
+function batterySVG(soh, hex){
+  const fillHeight = Math.max(4, (soh/100) * 230);
+  const y = 244 - fillHeight;
+  return `
+  <svg class="battery-svg" viewBox="0 0 150 280" xmlns="http://www.w3.org/2000/svg">
+    <rect x="55" y="6" width="40" height="14" rx="4" fill="#27323F"/>
+    <rect x="10" y="20" width="130" height="234" rx="16" fill="#0B1117" stroke="#27323F" stroke-width="2"/>
+    <clipPath id="cellClip"><rect x="16" y="26" width="118" height="222" rx="11"/></clipPath>
+    <g clip-path="url(#cellClip)">
+      <rect x="16" y="${y}" width="118" height="${fillHeight}" fill="${hex}" opacity="0.85">
+        <animate attributeName="y" from="248" to="${y}" dur="1s" fill="freeze" />
+        <animate attributeName="height" from="0" to="${fillHeight}" dur="1s" fill="freeze" />
+      </rect>
+      <rect x="16" y="${y}" width="118" height="3" fill="#ffffff" opacity="0.5">
+        <animate attributeName="y" from="248" to="${y}" dur="1s" fill="freeze" />
+      </rect>
+    </g>
+    <rect x="10" y="20" width="130" height="234" rx="16" fill="none" stroke="#27323F" stroke-width="2"/>
+  </svg>`;
+}
+
+function predictSOH(){
+  const cycle = parseFloat(document.getElementById('cycle').value);
+  const temp = parseFloat(document.getElementById('temp').value);
+  const resistance = parseFloat(document.getElementById('resistance').value);
+  const charge = parseFloat(document.getElementById('charge').value);
+
+  if([cycle,temp,resistance,charge].some(v=>isNaN(v))){
+    showToast('⚠ Please fill in all four fields with numbers.');
+    return;
+  }
+
+  let soh = 100 - (cycle*0.015) - (temp*0.08) - (resistance*120) - (charge*1.5);
+  soh = Math.max(50, Math.min(100, soh));
+  soh = parseFloat(soh.toFixed(2));
+
+  const st = statusFor(soh);
+  const estCyclesLeft = Math.max(0, Math.round((soh-60)/0.015));
+  const riskScore = (100-soh).toFixed(1);
+
+  const resultHTML = `
+    <div class="cell-wrap">
+      ${batterySVG(soh, st.hex)}
+      <div class="soh-readout">
+        <div class="soh-number" style="color:${st.hex}">${soh}%</div>
+        <div class="soh-label">PREDICTED STATE OF HEALTH</div>
+        <div class="status-badge" style="background:${st.hex}22; color:${st.hex}; border:1px solid ${st.hex}55">
+          <span class="b-dot" style="background:${st.hex}"></span>${st.label}
+        </div>
+      </div>
+    </div>
+    <div class="metric-row">
+      <div class="metric-chip">
+        <div class="m-val">${estCyclesLeft}</div>
+        <div class="m-label">Cycles to 60% SOH</div>
+      </div>
+      <div class="metric-chip">
+        <div class="m-val">${riskScore}%</div>
+        <div class="m-label">Degradation Score</div>
+      </div>
+    </div>
+  `;
+  document.getElementById('resultArea').innerHTML = resultHTML;
+
+  lastPrediction = {cycle, temp, resistance, charge, soh, status:st.label, time:new Date()};
+  history.unshift(lastPrediction);
+  renderStatCards();
+  showToast('Prediction logged to Recent Activity');
+}
+
+/* ===================== STAT CARDS ===================== */
+function renderStatCards(){
+  const total = history.length;
+  const avg = total ? (history.reduce((s,h)=>s+h.soh,0)/total).toFixed(1) : '—';
+  const best = total ? Math.max(...history.map(h=>h.soh)).toFixed(1) : '—';
+  const critical = history.filter(h=>h.soh<60).length;
+
+  document.getElementById('statCards').innerHTML = `
+    <div class="stat-card">
+      <div class="s-label">Total Predictions</div>
+      <div class="s-val" style="color:var(--cyan)">${total}</div>
+      <div class="s-trend" style="color:var(--text-dim)">this session</div>
+    </div>
+    <div class="stat-card">
+      <div class="s-label">Average SOH</div>
+      <div class="s-val" style="color:var(--green)">${avg}${total?'%':''}</div>
+      <div class="s-trend" style="color:var(--text-dim)">across all runs</div>
+    </div>
+    <div class="stat-card">
+      <div class="s-label">Best SOH Logged</div>
+      <div class="s-val" style="color:var(--amber)">${best}${total?'%':''}</div>
+      <div class="s-trend" style="color:var(--text-dim)">peak health</div>
+    </div>
+    <div class="stat-card">
+      <div class="s-label">Critical Flags</div>
+      <div class="s-val" style="color:var(--red)">${critical}</div>
+      <div class="s-trend" style="color:var(--text-dim)">below 60% SOH</div>
+    </div>
+  `;
+}
+
+/* ===================== HISTORY / RECENT ACTIVITY ===================== */
+function renderHistory(){
+  const wrap = document.getElementById('historyTableWrap');
+  if(history.length === 0){
+    wrap.innerHTML = `
+      <div class="empty-state">
+        <div class="e-icon">🗒</div>
+        <strong>No predictions yet</strong>
+        <p>Run a prediction in the Predict SOH tab — it will show up here with a timestamp.</p>
+      </div>`;
+    return;
+  }
+  const rows = history.map((h,i)=>{
+    const st = statusFor(h.soh);
+    return `
+      <tr>
+        <td class="mono">#${history.length - i}</td>
+        <td class="mono">${h.time.toLocaleTimeString()}</td>
+        <td class="mono">${h.cycle}</td>
+        <td class="mono">${h.temp}°C</td>
+        <td class="mono">${h.resistance}Ω</td>
+        <td class="mono">${h.charge}C</td>
+        <td class="mono" style="font-weight:600">${h.soh}%</td>
+        <td><span class="row-status" style="color:${st.hex}"><span class="b-dot" style="background:${st.hex}"></span>${st.label}</span></td>
+      </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>Time</th><th>Cycles</th><th>Temp</th><th>Resist.</th><th>Charge</th><th>SOH</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function clearHistory(){
+  history = [];
+  renderHistory();
+  renderStatCards();
+  showToast('Activity log cleared');
+}
+
+/* ===================== REPORT GENERATOR ===================== */
+function generateReport(){
+  if(!lastPrediction){
+    showToast('⚠ Run a prediction first, then generate the report.');
+    return;
+  }
+  const h = lastPrediction;
+  const st = statusFor(h.soh);
+  const verdictText = h.soh>=80
+    ? 'This cell shows strong retained capacity and is safe for continued regular use.'
+    : h.soh>=60
+    ? 'This cell shows moderate degradation. Monitor periodically and consider reduced load.'
+    : 'This cell shows significant degradation. Replacement or further lab testing is recommended.';
+
+  document.getElementById('reportPreview').innerHTML = `
+    <div class="report-head">
+      <h2>Battery SOH Diagnostic Report</h2>
+      <p>Generated by CellSense · ${new Date().toLocaleString()}</p>
+    </div>
+    <div class="report-body">
+      <h4>Input Parameters</h4>
+      <div class="report-grid">
+        <div><span>Cycle Count</span>${h.cycle} cycles</div>
+        <div><span>Temperature</span>${h.temp} °C</div>
+        <div><span>Internal Resistance</span>${h.resistance} Ω</div>
+        <div><span>Charge Rate</span>${h.charge} C</div>
+      </div>
+      <h4>Result</h4>
+      <div class="report-grid">
+        <div><span>Predicted SOH</span>${h.soh}%</div>
+        <div><span>Classification</span>${h.status}</div>
+      </div>
+      <div class="report-verdict" style="background:${st.hex}1A;color:${st.hex};border:1px solid ${st.hex}55">
+        ${verdictText}
+      </div>
+    </div>
+    <div class="report-foot">CellSense Battery SOH Prediction System — Academic demo report. Formula-based estimate, not a substitute for certified lab testing.</div>
+  `;
+  document.getElementById('reportPreview').classList.add('show');
+  showToast('Report generated below ↓');
+}
+
+function printReport(){
+  if(!document.getElementById('reportPreview').classList.contains('show')){
+    showToast('⚠ Generate the report first.');
+    return;
+  }
+  const content = document.getElementById('reportPreview').innerHTML;
+  const w = window.open('', '_blank');
+  w.document.write(`
+    <html><head><title>Battery SOH Report</title>
+    <style>
+      body{font-family:Arial,sans-serif;margin:0;color:#1a1a1a;}
+      .report-head{background:#0D1117;color:#fff;padding:24px 28px;}
+      .report-head h2{margin:0 0 4px;}
+      .report-head p{margin:0;font-size:11px;color:#8FA3B0;}
+      .report-body{padding:24px 28px;}
+      .report-body h4{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#666;margin:18px 0 10px;}
+      .report-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;font-size:13px;}
+      .report-grid div span{color:#888;display:block;font-size:10.5px;text-transform:uppercase;}
+      .report-verdict{margin-top:18px;padding:14px 16px;border-radius:8px;font-size:13.5px;font-weight:600;}
+      .report-foot{padding:14px 28px;background:#f4f4f4;font-size:10.5px;color:#999;}
+    </style></head><body>${content}</body></html>
+  `);
+  w.document.close();
+  w.focus();
+  setTimeout(()=>w.print(), 300);
+}
+</script>
+</body>
+</html>
+
